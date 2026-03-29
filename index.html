@@ -631,10 +631,9 @@
     <!-- Dynamic Social Proof Container -->
     <div id="toast-container"></div>
 
-    <!-- JAVASCRIPT APP ENGINE -->
     <script>
         // ==========================================================================
-        // 0. PWA INSTALLATION TRICK (Generates App Manifest dynamically)
+        // 0. PWA INSTALLATION TRICK
         // ==========================================================================
         (function injectPWA() {
             const manifest = {
@@ -655,12 +654,14 @@
         })();
 
         // ==========================================================================
-        // 1. DATABASE & GOOGLE SHEETS API (FIXED ROBUST VERSION FOR PRODUCTS & SUBS)
+        // 1. DATABASE & GOOGLE SHEETS API (PRODUCTS, SUBS, & PIN CODES)
         // ==========================================================================
         const GOOGLE_SHEET_ID = '1xREeUJkxgI8nCtsBzzH6UaN4plkLo1vWwGKjOcB1CCo'; 
         
         let productsDB = [];
         let subscriptionsDB = [];
+        // Default PINs fallback just in case the Google Sheet fails
+        let validDeliveryPins = ['700084', '700103', '700150', '700094', '700152']; 
 
         const getVal = (row, index) => {
             if (!row || !row.c || !row.c[index]) return '';
@@ -724,7 +725,7 @@
                             img: getVal(row, 4) || 'https://images.unsplash.com/photo-1599084993091-1cb5c0721cc6?w=600',
                             prepType: getVal(row, 5) || 'Cleaned',
                             variants: variants.length > 0 ? variants : [{ label: '1 Kg', price: 0 }],
-                            isFastSelling: (idx % 3 === 0) // Adds scarcity tag to some products automatically
+                            isFastSelling: (idx % 3 === 0)
                         };
                     });
 
@@ -746,7 +747,27 @@
                         };
                     });
 
-                console.log("✅ Google Sheets Data Loaded Successfully!");
+                console.log("✅ Products & Subs Loaded!");
+
+                // Try fetching dynamic PIN Codes securely
+                try {
+                    const delUrl = `https://docs.google.com/spreadsheets/d/${GOOGLE_SHEET_ID}/gviz/tq?tqx=out:json&sheet=Delivery`;
+                    const delRes = await fetch(delUrl);
+                    if (delRes.ok) {
+                        const delText = await delRes.text();
+                        if (!delText.includes('<html')) {
+                            const delJson = extractJSON(delText);
+                            const fetchedPins = delJson.table.rows
+                                .map(row => getVal(row, 0).trim())
+                                .filter(pin => pin !== '' && pin.toLowerCase() !== 'pin');
+                            
+                            if(fetchedPins.length > 0) validDeliveryPins = fetchedPins;
+                            console.log("✅ Dynamic PINs Loaded:", validDeliveryPins);
+                        }
+                    }
+                } catch (pinError) {
+                    console.warn("⚠️ Delivery tab not found or empty. Using default PINs.");
+                }
 
             } catch (error) {
                 console.error("❌ Data Load Error:", error);
@@ -756,8 +777,7 @@
 
                 // FALLBACK DATA
                 productsDB = [
-                    { id: 'p1', title: 'Rohu / Katla Basic', category: 'Raw Fish', desc: 'Perfectly de-scaled, pet-kata, and gaanth cuts.', img: 'https://images.unsplash.com/photo-1599084993091-1cb5c0721cc6?w=600&q=80', prepType: 'Cleaned', variants: [{ label: '1 Kg', price: 299 }, { label: '500g', price: 160 }], isFastSelling: true },
-                    { id: 'p2', title: 'Classic Shorshe Bhetki', category: 'Marinated', desc: 'Premium Bhetki marinated in rich mustard paste.', img: 'https://images.unsplash.com/photo-1519708227418-c8fd9a3237a2?w=600&q=80', prepType: 'Ready to Cook', variants: [{ label: '1 Kg', price: 549 }, { label: '500g', price: 280 }], isFastSelling: false }
+                    { id: 'p1', title: 'Rohu / Katla Basic', category: 'Raw Fish', desc: 'Perfectly de-scaled, pet-kata, and gaanth cuts.', img: 'https://images.unsplash.com/photo-1599084993091-1cb5c0721cc6?w=600&q=80', prepType: 'Cleaned', variants: [{ label: '1 Kg', price: 299 }, { label: '500g', price: 160 }], isFastSelling: true }
                 ];
                 subscriptionsDB = [
                     { title: 'Weekly Fish Fix', desc: 'Ideal for nuclear families.', price: 1499, badge: null, features: ['4 Deliveries/mo', '1.5 Kg Fish/Delivery', 'Free Cleaning'] }
@@ -795,7 +815,6 @@
         function renderProducts() {
             const list = productsDB.filter(p => (state.category === 'All' || p.category === state.category) && p.title.toLowerCase().includes(state.query.toLowerCase()));
             
-            // Build UI Filters dynamically
             const cats = ['All', ...new Set(productsDB.map(p => p.category))];
             if(DOM.filters.innerHTML === '') {
                 DOM.filters.innerHTML = cats.map(c => `<button class="filter-btn ${state.category===c?'active':''}" data-c="${c}">${c}</button>`).join('');
@@ -814,13 +833,10 @@
                         <div class="prep-tag">${p.prepType}</div>
                     </div>
                     <div class="product-cat">${p.category}</div><h3 class="product-title">${p.title}</h3><p class="product-desc">${p.desc}</p>
-                    
-                    <!-- Recipe Dropdown -->
                     <details class="recipe-dropdown">
                         <summary>👨‍🍳 Chef's Tip</summary>
                         <p>Wash lightly. Marinate with a pinch of salt & turmeric for 10 mins. Pan fry in hot mustard oil for best results.</p>
                     </details>
-
                     <select class="variant-select" id="v-${p.id}" onchange="document.getElementById('p-${p.id}').innerText='₹'+productsDB.find(x=>String(x.id)==='${p.id}').variants[this.value].price">
                         ${p.variants.map((v,i) => `<option value="${i}">${v.label} - ₹${v.price}</option>`).join('')}
                     </select>
@@ -881,7 +897,6 @@
             const totalQty = state.cart.reduce((s,i)=>s+i.qty,0);
             DOM.totalCount.innerText = totalQty;
 
-            // Mobile Sticky Bar Logic
             const sticky = document.getElementById('sticky-mobile-cart');
             if(totalQty > 0) sticky.classList.add('active-mobile'); else sticky.classList.remove('active-mobile');
 
@@ -897,7 +912,6 @@
                 <div style="text-align:right"><div style="font-weight:bold; color:var(--primary); margin-bottom:10px;">₹${c.price*c.qty}</div><i class="fa-solid fa-trash" style="color:#ef4444; cursor:pointer;" onclick="rem(${i})"></i></div></div>
             `).join('');
 
-            // Add Upsell Section inside Cart
             html += `
                 <div class="upsell-section">
                     <div class="upsell-title">Frequently bought together:</div>
@@ -914,7 +928,6 @@
             const dlv = (sub > 0 && sub < freeThreshold) ? 30 : 0;
             const total = sub + dlv;
             
-            // Progress Bar Logic
             const fill = document.getElementById('progress-fill');
             const pText = document.getElementById('progress-text');
             if(sub === 0) { fill.style.width = '0%'; pText.innerText = `Add ₹${freeThreshold} more for FREE Delivery! 🚚`; }
@@ -947,7 +960,6 @@
             this.innerHTML = state.dark?'<i class="fa-solid fa-sun"></i>':'<i class="fa-solid fa-moon"></i>';
         };
 
-        // Accordion fix for FAQ
         document.querySelectorAll('.faq-question').forEach(q => { q.onclick = () => q.parentElement.classList.toggle('active'); });
 
         DOM.checkoutBtn.onclick = () => { toggleCart(); DOM.subPlanInput.value = ""; DOM.subPlanPrice.value = ""; DOM.modal.style.display='flex'; };
@@ -984,14 +996,9 @@
             text += `*Payment Mode:* ${method.toUpperCase()}%0A👤 *Name:* ${name}%0A📍 *Loc:* ${addr}`;
 
             if(method === 'upi') {
-                // NOTE TO OWNER: Replace 'gariafish@ybl' with your actual business UPI ID
                 const upiID = "gariafish@ybl"; 
                 const upiLink = `upi://pay?pa=${upiID}&pn=Garia%20Fish%20Fix&am=${totalPayable}&cu=INR&tr=${orderId}`;
-                
-                // Open UPI Deep Link in background to trigger phone's Gpay/Phonepe
                 window.location.href = upiLink; 
-                
-                // Then open WhatsApp automatically after a short delay
                 setTimeout(() => window.open(`https://wa.me/966572562151?text=${text}`, '_blank'), 2000);
             } else {
                 window.open(`https://wa.me/966572562151?text=${text}`, '_blank');
@@ -1001,22 +1008,31 @@
         };
 
         // ==========================================================================
-        // 6. PIN CODE CHECKER
+        // 6. DYNAMIC PIN CODE CHECKER
         // ==========================================================================
         window.checkPin = () => {
             const pin = document.getElementById('pin-input').value;
             const msg = document.getElementById('pin-msg');
-            const validPins = ['700084', '700103', '700150', '700094', '700152'];
-            if(validPins.includes(pin)) { msg.style.color = 'var(--success)'; msg.innerHTML = '🎉 Great news! We deliver to your location within 45 mins.'; }
-            else if(pin.length === 6) { msg.style.color = 'var(--accent)'; msg.innerHTML = '😞 Sorry, we currently do not deliver to this PIN. WhatsApp us for special requests!'; }
-            else { msg.style.color = 'red'; msg.innerHTML = 'Please enter a valid 6-digit PIN.'; }
+            
+            // Uses the array fetched from Google Sheets!
+            if(validDeliveryPins.includes(pin)) { 
+                msg.style.color = 'var(--success)'; 
+                msg.innerHTML = '🎉 Great news! We deliver to your location within 45 mins.'; 
+            }
+            else if(pin.length === 6) { 
+                msg.style.color = 'var(--accent)'; 
+                msg.innerHTML = '😞 Sorry, we currently do not deliver to this PIN. WhatsApp us for special requests!'; 
+            }
+            else { 
+                msg.style.color = 'red'; 
+                msg.innerHTML = 'Please enter a valid 6-digit PIN.'; 
+            }
         };
 
         // ==========================================================================
         // 7. CAROUSEL & FAKE SOCIAL PROOF TOASTS
         // ==========================================================================
         function initCarouselAndToasts() {
-            // Carousel Setup
             const slides = document.querySelectorAll('.carousel-slide');
             const dotsContainer = document.getElementById('carousel-dots');
             
@@ -1049,7 +1065,6 @@
             }
             setInterval(() => moveSlide(1), 6000);
 
-            // Fake Social Proof Setup
             const names = ["Aditi", "Rahul", "Sreemoyee", "Anirban", "Priyanka", "Sourav", "Deblina"];
             const locs = ["Garia", "Sonarpur", "Mahamayatala", "Patuli", "Narendrapur"];
             
